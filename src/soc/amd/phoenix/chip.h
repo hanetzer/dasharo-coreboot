@@ -110,7 +110,7 @@ struct soc_amd_phoenix_config {
 	struct usb_phy_config usb_phy;
 
 	/*
-	 * XHCI0 has 5 USB2 port
+	 * XHCI0 has 5 USB2 ports
 	 * XHCI1 has 1 USB2 port
 	 * USB4 XHCI has 1 USB2 port each
 	 */

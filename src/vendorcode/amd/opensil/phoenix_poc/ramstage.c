@@ -13,6 +13,7 @@
 #include <cpu/amd/mtrr.h>
 #include <cpu/cpu.h>
 #include <cpu/x86/smm.h>
+#include <console/console.h>
 #include <device/device.h>
 #include <soc/amd/phoenix/chip.h>
 #include <soc/aoac_defs.h>
@@ -85,8 +86,6 @@ static FCH_TC_USB_OEM_PLATFORM_TABLE usb_config = { 0 };
 
 #define NUM_XHCI_CONTROLLERS 4
 #define NUM_USB4_CONTROLLERS 2
-#define NUM_USB2_PORTS 8
-#define NUM_USB3_PORTS 3
 static void configure_usb(SIL_CONTEXT *SilContext)
 {
 	struct device *usb_ctrlr[NUM_XHCI_CONTROLLERS] = {
@@ -107,7 +106,7 @@ static void configure_usb(SIL_CONTEXT *SilContext)
 	};
 
 	/* In coreboot the USB4 ports are first in order, but openSIL expects the opposite */
-	struct device *usb2_ports[NUM_USB2_PORTS] = {
+	struct device *usb2_ports[USB2_PORT_COUNT] = {
 		DEV_PTR(usb2_port2),
 		DEV_PTR(usb2_port3),
 		DEV_PTR(usb2_port4),
@@ -118,7 +117,7 @@ static void configure_usb(SIL_CONTEXT *SilContext)
 		DEV_PTR(usb2_port1)
 	};
 
-	struct device *usb3_ports[NUM_USB3_PORTS] = {
+	struct device *usb3_ports[USB3_PORT_COUNT] = {
 		DEV_PTR(usb3_port2),
 		DEV_PTR(usb3_port3),
 		DEV_PTR(usb3_port7)
@@ -127,6 +126,16 @@ static void configure_usb(SIL_CONTEXT *SilContext)
 	struct device *usb4_xhci_ports[NUM_USB4_CONTROLLERS] = {
 		DEV_PTR(usb3_port0),
 		DEV_PTR(usb3_port1)
+	};
+
+	const struct usb_port_map {
+		uint8_t usb2_ports;
+		uint8_t usb3_ports;
+	} usb_port_map[NUM_XHCI_CONTROLLERS] = {
+		{ 5, 2 },
+		{ 1, 1 },
+		{ 1, 1 },
+		{ 1, 1 }
 	};
 
 	const struct soc_amd_phoenix_config *soc_config = config_of_soc();
@@ -150,19 +159,36 @@ static void configure_usb(SIL_CONTEXT *SilContext)
 	if (fch_usb_data->Usb4Host[1].PcieAdpHidden)
 		fch_usb_data->Usb4Host[1].PcieTunnelingDisable = 1;
 
+	/*
+	 * XHCI_OC structure is broken, it tries to fit u32 and u16 into single u32.
+	 * It causes the memcpy to incorrectly assign USB3 OC pins. Also the OC pin map
+	 * is not separate from USB2 ports, but simply follows the USB2 OC pin map and
+	 * the offset depens on the port count,
+	 */
+	uint32_t oc_pins, mask, shift;
 	for (int i = 0; i < NUM_XHCI_CONTROLLERS; i++) {
-		memcpy(&fch_usb_data->XhciOCpinSelect[i].Field.Usb20OcPin, &soc_config->usb2_oc_pins[i],
-		       sizeof(fch_usb_data->XhciOCpinSelect[i].Field.Usb20OcPin));
-		memcpy(&fch_usb_data->XhciOCpinSelect[i].Field.Usb31OcPin, &soc_config->usb3_oc_pins[i],
-		       sizeof(fch_usb_data->XhciOCpinSelect[i].Field.Usb31OcPin));
+		oc_pins = 0xffffffff;
+		memcpy(&oc_pins, &soc_config->usb2_oc_pins[i], sizeof(soc_config->usb2_oc_pins[i]));
+
+		mask = (1 << (usb_port_map[i].usb2_ports * 4)) - 1;
+		fch_usb_data->XhciOCpinSelect[i].OcPinSelect &= ~mask;
+		fch_usb_data->XhciOCpinSelect[i].OcPinSelect |= oc_pins & mask;
+
+		oc_pins = 0xffffffff;
+		memcpy(&oc_pins, &soc_config->usb3_oc_pins[i], sizeof(soc_config->usb3_oc_pins[i]));
+
+		mask = (1 << (usb_port_map[i].usb3_ports * 4)) - 1;
+		shift = usb_port_map[i].usb2_ports * 4;
+		fch_usb_data->XhciOCpinSelect[i].OcPinSelect &= ~(mask << shift);
+		fch_usb_data->XhciOCpinSelect[i].OcPinSelect |= (oc_pins & mask) << shift;
 	}
 
-	for (int i = 0; i < (NUM_USB2_PORTS - NUM_USB4_CONTROLLERS); i++) {
+	for (int i = 0; i < (USB2_PORT_COUNT - NUM_USB4_CONTROLLERS); i++) {
 		if (!is_dev_enabled(usb2_ports[i]))
 			fch_usb_data->XhciUsb2PortDisable |= (1 << i);
 	}
 
-	for (int i = 0; i < NUM_USB3_PORTS; i++) {
+	for (int i = 0; i < USB3_PORT_COUNT; i++) {
 		if (!is_dev_enabled(usb3_ports[i]))
 			fch_usb_data->XhciUsb3PortDisable |= (1 << i);
 	}
