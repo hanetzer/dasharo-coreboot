@@ -407,7 +407,9 @@ enum cb_err efi_fv_print_options(struct region_device *rdev)
 {
 	enum cb_err ret;
 	bool auth_format;
-	struct region_device store_rdev = *rdev;
+	struct region_device store_rdev;
+
+	memcpy(&store_rdev, rdev, sizeof(store_rdev));
 
 	ret = efi_fv_init(&store_rdev, &auth_format);
 	if (ret != CB_SUCCESS)
@@ -431,7 +433,11 @@ enum cb_err efi_fv_get_option(struct region_device *rdev,
 	struct efi_find_args args;
 	bool auth_format;
 	enum cb_err ret;
-	struct region_device store_rdev = *rdev;
+	struct region_device store_rdev;
+
+	memcpy(&store_rdev, rdev, sizeof(store_rdev));
+
+	printk(BIOS_DEBUG, "%s: %s\n", __func__, name);
 
 	ret = efi_fv_init(&store_rdev, &auth_format);
 	if (ret != CB_SUCCESS)
@@ -584,13 +590,17 @@ enum cb_err efi_fv_set_option(struct region_device *rdev,
 			      void *data,
 			      uint32_t size)
 {
-	struct region_device rdev_old;
-	struct region_device store_rdev = *rdev;
+	struct region_device *rdev_old;
+	struct region_device store_rdev;
 	struct efi_find_compare_args args;
 	bool found_existing;
 	VARIABLE_HEADER hdr;
 	bool auth_format;
 	enum cb_err ret;
+
+	memcpy(&store_rdev, rdev, sizeof(store_rdev));
+
+	printk(BIOS_DEBUG, "%s: %s\n", __func__, name);
 
 	ret = efi_fv_init(&store_rdev, &auth_format);
 	if (ret != CB_SUCCESS)
@@ -612,7 +622,7 @@ enum cb_err efi_fv_set_option(struct region_device *rdev,
 		if (args.match)
 			return CB_SUCCESS;
 
-		rdev_old = store_rdev;
+		rdev_old = &store_rdev;
 
 		/* Mark as to be deleted */
 		hdr.State = VAR_IN_DELETED_TRANSITION;
@@ -643,7 +653,7 @@ enum cb_err efi_fv_set_option(struct region_device *rdev,
 	if (found_existing) {
 		/* Mark old variable as deleted */
 		hdr.State = VAR_DELETED;
-		if (rdev_writeat(&rdev_old, &hdr.State, offsetof(VARIABLE_HEADER, State),
+		if (rdev_writeat(rdev_old, &hdr.State, offsetof(VARIABLE_HEADER, State),
 			sizeof(hdr.State)) != sizeof(hdr.State))
 			return CB_EFI_ACCESS_ERROR;
 	}
